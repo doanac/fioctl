@@ -174,6 +174,11 @@ type TufCustom struct {
 	OverridesSha   string                `json:"meta-subscriber-overrides-sha,omitempty"`
 }
 
+type ComposeAppBundle struct {
+	Files      []string               `json:"files"`
+	ComposeRef map[string]interface{} `json:"info"`
+}
+
 type TargetTestResults struct {
 	Name    string `json:"name"`
 	Status  string `json:"status"`
@@ -701,6 +706,26 @@ func (a *Api) TargetImageCreate(factory string, targetName string, appShortlist 
 	}
 	resp, err := a.Post(url, nil)
 	return getResponse(resp, err, "assemble-system-image")
+}
+
+func (a *Api) TargetApp(factory string, targetName string, app string) (ComposeAppBundle, error) {
+	url := a.serverUrl + "/ota/factories/" + factory + "/targets/" + targetName + "/compose-apps/" + app + "/"
+	logrus.Debugf("TargetApp with url: %s", url)
+	type wrapper struct {
+		Content ComposeAppBundle `json:"content"`
+	}
+	w := wrapper{}
+
+	body, err := a.Get(url)
+	if err != nil {
+		return w.Content, err
+	}
+
+	if err = json.Unmarshal(*body, &w); err != nil {
+		return w.Content, err
+	}
+
+	return w.Content, err
 }
 
 // Return a list of Targets that have been tested

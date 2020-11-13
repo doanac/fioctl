@@ -2,6 +2,7 @@ package targets
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -16,16 +17,45 @@ import (
 
 func init() {
 	cmd.AddCommand(&cobra.Command{
-		Use:   "show <version>",
+		Use:   "show <version> [<app>]",
 		Short: "Show details of a specific target.",
 		Run:   doShow,
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.RangeArgs(1, 2),
 	})
+}
+
+func showApp(factory, targetName, appName string, custom *client.TufCustom) {
+	_, ok := custom.ComposeApps[appName]
+	if !ok {
+		fmt.Println("ERROR: App not found in target")
+		os.Exit(1)
+	}
+	bundle, err := api.TargetApp(factory, targetName, appName)
+	if err != nil {
+		fmt.Print("ERROR:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Files:")
+	for _, file := range bundle.Files {
+		fmt.Println("\t" + file)
+	}
+
+	fmt.Println("\ndocker-compose data:")
+	pretty, err := json.MarshalIndent(bundle.ComposeRef, "", "  ")
+	if err != nil {
+		fmt.Print("ERROR:", err)
+		os.Exit(1)
+	}
+	fmt.Println(string(pretty))
 }
 
 func doShow(cmd *cobra.Command, args []string) {
 	factory := viper.GetString("factory")
 	logrus.Debugf("Showing target for %s %s", factory, args[0])
+	var app *string
+	if len(args) == 2 {
+		app = &args[1]
+	}
 
 	targets, err := api.TargetsList(factory)
 	if err != nil {
@@ -53,6 +83,10 @@ func doShow(cmd *cobra.Command, args []string) {
 		if custom.TargetFormat != "OSTREE" {
 			logrus.Debugf("Skipping non-ostree target: %v", target)
 			continue
+		}
+		if app != nil {
+			showApp(factory, name, *app, custom)
+			return
 		}
 		if len(custom.ContainersSha) > 0 {
 			if len(containersSha) > 0 && containersSha != custom.ContainersSha {
