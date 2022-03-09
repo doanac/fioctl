@@ -48,7 +48,7 @@ func doRotateTargets(cmd *cobra.Command, args []string) {
 	// 2. Generate a new key.
 	// 3. Set these keys in root.json
 
-	onlineTargetId, err := findOnlineTargetId(factory, *root, creds)
+	onlineTargetId, err := FindOnlineTargetId(api, factory, *root, creds)
 	subcommands.DieNotNil(err)
 
 	rootid, rootPk, err := findRoot(*root, creds)
@@ -63,7 +63,7 @@ func doRotateTargets(cmd *cobra.Command, args []string) {
 	tufRootPost(factory, credsFile, root, newCreds)
 }
 
-func findOnlineTargetId(factory string, root client.AtsTufRoot, creds OfflineCreds) (string, error) {
+func FindOnlineTargetId(api *client.Api, factory string, root client.AtsTufRoot, creds OfflineCreds) (string, error) {
 	onlinePub, err := api.GetFoundriesTargetsKey(factory)
 	subcommands.DieNotNil(err)
 	for _, keyid := range root.Signed.Roles["targets"].KeyIDs {

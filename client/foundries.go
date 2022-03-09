@@ -1094,9 +1094,17 @@ func (a *Api) TufProdRootPost(factory string, root []byte) (string, error) {
 	return a.tufRootPost(factory, true, root)
 }
 
-func (a *Api) TargetsListRaw(factory string) (*[]byte, error) {
+func (a *Api) TargetsListRaw(factory string) (*[]byte, string, error) {
 	url := a.serverUrl + "/ota/repo/" + factory + "/api/v1/user_repo/targets.json"
-	return a.Get(url)
+	res, err := a.RawGet(url, nil)
+	log := logrus.WithFields(logrus.Fields{"url": url, "method": "GET"})
+	if err != nil {
+		log.Debugf("Network Error: %s", err)
+		return nil, "", err
+	}
+	checksum := res.Header.Get("x-ats-role-checksum")
+	bytes, err := readResponse(res, log)
+	return bytes, checksum, err
 }
 
 func (a *Api) TargetGet(factory string, targetName string) (*tuf.FileMeta, error) {
@@ -1148,6 +1156,19 @@ func (a *Api) TargetsPut(factory string, data []byte) (string, string, error) {
 		return "", "", err
 	}
 	return parseJobServResponse(resp, err, "UpdateTargets")
+}
+
+func (a *Api) TargetsPost(factory string, origCheckSum string, targets AtsTufTargets) error {
+	url := a.serverUrl + "/ota/repo/" + factory + "/api/v1/user_repo/targets"
+
+	data, err := json.Marshal(targets)
+	if err != nil {
+		return err
+	}
+	a.config.ExtraHeaders["x-ats-role-checksum"] = origCheckSum
+	_, err = a.Put(url, data)
+	delete(a.config.ExtraHeaders, "x-ats-role-checksum")
+	return err
 }
 
 type UpdateTarget struct {

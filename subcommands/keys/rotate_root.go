@@ -329,7 +329,7 @@ func syncProdRoot(factory string, root client.AtsTufRoot, creds OfflineCreds) er
 	if len(root.Signed.Roles["targets"].KeyIDs) > 1 &&
 		!sliceSetEqual(root.Signed.Roles["targets"].KeyIDs, prevRoot.Signed.Roles["targets"].KeyIDs) {
 		//subcommands.DieNotNil(fmt.Errorf("HERE"))
-		onlineTargetId, err := findOnlineTargetId(factory, root, creds)
+		onlineTargetId, err := FindOnlineTargetId(api, factory, root, creds)
 		if err != nil {
 			return err
 		}

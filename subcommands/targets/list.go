@@ -107,7 +107,7 @@ func doList(cmd *cobra.Command, args []string) {
 			subcommands.DieNotNil(err)
 			os.Stdout.Write(bytes)
 		} else {
-			body, err := api.TargetsListRaw(factory)
+			body, _, err := api.TargetsListRaw(factory)
 			subcommands.DieNotNil(err)
 			os.Stdout.Write(*body)
 		}
