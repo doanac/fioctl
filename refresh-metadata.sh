@@ -11,8 +11,6 @@ chmod +x ${tuf_bin}
 git config user.name github-actions
 git config user.email github-actions@github.com
 
-export TUF_LOCAL_STORE=git
-
 if ! ${tuf_bin} status --expires "`date -d '+5 hour'`" snapshot ; then
 	echo "refresing snapshot and timestamp metadata"
 	${tuf_bin} snapshot
@@ -26,4 +24,11 @@ else
 	fi
 fi
 
-git push
+git add repository/*
+if [ -z "$(git status --porcelain)" ] ; then
+	echo "metadata does not need refreshing"
+else
+	echo "committing changes to metadata"
+	git commit -m "updated by github action"
+	git push
+fi
