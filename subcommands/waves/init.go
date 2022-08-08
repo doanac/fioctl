@@ -1,11 +1,16 @@
 package waves
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"os/exec"
 	"strconv"
 	"time"
 
-	"github.com/docker/go/canonical/json"
+	canonical "github.com/docker/go/canonical/json"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -36,10 +41,12 @@ The same expiration will be used for production targets when a wave is complete.
 The same expiration will be used for production targets when a wave is complete.
 When set this value overrides an 'expires-days' argument.
 Example: 2020-01-01T00:00:00Z`)
+	initCmd.Flags().BoolP("edit", "", false, "Manually edit targets list before signing. DANGER - EXPERT MODE")
 	initCmd.Flags().BoolP("dry-run", "d", false, "Don't create a wave, print it to standard output.")
 	initCmd.Flags().StringP("keys", "k", "", "Path to <offline-creds.tgz> used to sign wave targets.")
 	initCmd.Flags().StringP("source-tag", "", "", "Match this tag when looking for target versions. Certain advanced tagging configurations may require this argument.")
 	_ = initCmd.MarkFlagRequired("keys")
+	_ = initCmd.Flags().MarkHidden("edit")
 }
 
 func doInitWave(cmd *cobra.Command, args []string) {
@@ -47,6 +54,7 @@ func doInitWave(cmd *cobra.Command, args []string) {
 	name, version, tag := args[0], args[1], args[2]
 	intVersion, err := strconv.ParseInt(version, 10, 32)
 	subcommands.DieNotNil(err, "Version must be an integer")
+	edit, _ := cmd.Flags().GetBool("edit")
 	expires := readExpiration(cmd)
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	sourceTag, _ := cmd.Flags().GetString("source-tag")
@@ -100,14 +108,18 @@ func doInitWave(cmd *cobra.Command, args []string) {
 		targets.Targets[name] = file
 	}
 
-	meta, err := json.MarshalCanonical(targets)
+	if edit {
+		targets = editTargets(targets)
+	}
+
+	meta, err := canonical.MarshalCanonical(targets)
 	subcommands.DieNotNil(err, "Failed to serialize new targets")
 	signatures := signTargets(meta, factory, offlineKeys)
 
 	signed := tuf.Signed{
 		// Existing signatures are invalidated by new targets, throw them away.
 		Signatures: signatures,
-		Signed:     &json.RawMessage{},
+		Signed:     &canonical.RawMessage{},
 	}
 	_ = signed.Signed.UnmarshalJSON(meta)
 
@@ -124,6 +136,56 @@ func doInitWave(cmd *cobra.Command, args []string) {
 	} else {
 		subcommands.DieNotNil(api.FactoryCreateWave(factory, &wave), "Failed to create a wave")
 	}
+}
+
+func editTargets(targets client.AtsTargetsMeta) client.AtsTargetsMeta {
+	indentedMeta, err := json.MarshalIndent(targets, "", "  ")
+	subcommands.DieNotNil(err, "Failed to serialize new targets")
+
+	// Create temp file to edit with
+	tmpfile, err := ioutil.TempFile("", "targets.*.json")
+	if err != nil {
+		fmt.Println("Unable to create tempfile: ", err)
+		os.Exit(1)
+	}
+	defer os.Remove(tmpfile.Name())
+	if _, err := tmpfile.Write(indentedMeta); err != nil {
+		fmt.Println("Unable to write tempfile: ", err)
+		os.Exit(1)
+	}
+	if err := tmpfile.Close(); err != nil {
+		fmt.Println("Unable to close tempfile: ", err)
+		os.Exit(1)
+	}
+
+	// Let user edit the file
+	editor := os.Getenv("EDITOR")
+	if len(editor) == 0 {
+		editor = "/usr/bin/vi"
+	}
+	edit := exec.Command(editor, tmpfile.Name())
+	edit.Stdout = os.Stdout
+	edit.Stderr = os.Stderr
+	edit.Stdin = os.Stdin
+	logrus.Debug("Running editor and waiting for it to finish...")
+	if err := edit.Run(); err != nil {
+		fmt.Println("Editing cancelled: ", err)
+		os.Exit(0)
+	}
+
+	// Read it and see if its changed
+	content, err := ioutil.ReadFile(tmpfile.Name())
+	if err != nil {
+		fmt.Println("ERROR: Unable to re-read tempfile:", err)
+	}
+	if bytes.Equal(content, indentedMeta) {
+		fmt.Println("No changes found, exiting.")
+		os.Exit(0)
+	}
+	var newTargets client.AtsTargetsMeta
+	err = json.Unmarshal(content, &newTargets)
+	subcommands.DieNotNil(err, "Unable to parse the editted targets")
+	return newTargets
 }
 
 func signTargets(meta []byte, factory string, offlineKeys keys.OfflineCreds) []tuf.Signature {
@@ -189,7 +251,7 @@ func replaceTags(target *tuf.FileMeta, tag string) error {
 	}
 	// We don't care what tags are there, but we know what tags we want to be there
 	custom["tags"] = []string{tag}
-	if data, err := json.MarshalCanonical(custom); err != nil {
+	if data, err := canonical.MarshalCanonical(custom); err != nil {
 		return err
 	} else {
 		return target.Custom.UnmarshalJSON(data)
