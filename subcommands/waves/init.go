@@ -54,24 +54,52 @@ func doInitWave(cmd *cobra.Command, args []string) {
 	logrus.Debugf("Creating a wave %s for factory %s targets version %s and new tag %s expires %s",
 		name, factory, version, tag, expires.Format(time.RFC3339))
 
+	currentTargets, err := api.ProdTargetsGet(factory, tag, false)
+	subcommands.DieNotNil(err)
+	targets := getTargets(factory, currentTargets, version, tag, sourceTag)
+	targets.Expires = expires
+	targets.Version = int(intVersion)
+
+	meta, err := json.MarshalCanonical(targets)
+	subcommands.DieNotNil(err, "Failed to serialize new targets")
+	signatures := signTargets(meta, factory, offlineKeys)
+
+	signed := tuf.Signed{
+		// Existing signatures are invalidated by new targets, throw them away.
+		Signatures: signatures,
+		Signed:     &json.RawMessage{},
+	}
+	_ = signed.Signed.UnmarshalJSON(meta)
+
+	wave := client.WaveCreate{
+		Name:    name,
+		Version: version,
+		Tag:     tag,
+		Targets: signed,
+	}
+	if dryRun {
+		payload, err := json.MarshalIndent(&wave, "", "  ")
+		subcommands.DieNotNil(err, "Failed to marshal a wave")
+		fmt.Println(string(payload))
+	} else {
+		subcommands.DieNotNil(api.FactoryCreateWave(factory, &wave), "Failed to create a wave")
+	}
+}
+
+func getTargets(factory string, currentTargets *client.AtsTufTargets, version, tag, sourceTag string) *client.AtsTargetsMeta {
 	new_targets, err := api.TargetsList(factory, version)
 	subcommands.DieNotNil(err)
 	if len(new_targets) == 0 {
 		subcommands.DieNotNil(fmt.Errorf("No targets found for version %s", version))
 	}
 
-	current_targets, err := api.ProdTargetsGet(factory, tag, false)
-	subcommands.DieNotNil(err)
-
 	targets := client.AtsTargetsMeta{}
 	targets.Type = tuf.TUFTypes["targets"]
-	targets.Expires = expires
-	targets.Version = int(intVersion)
-	if current_targets == nil {
+	if currentTargets == nil {
 		targets.Targets = make(tuf.Files)
 	} else {
-		targets.Targets = current_targets.Signed.Targets
-		if targets.Version <= current_targets.Signed.Version {
+		targets.Targets = currentTargets.Signed.Targets
+		if targets.Version <= currentTargets.Signed.Version {
 			subcommands.DieNotNil(fmt.Errorf(
 				"Cannot create a wave for a version lower than production targets for the same tag"))
 		}
@@ -99,31 +127,7 @@ func doInitWave(cmd *cobra.Command, args []string) {
 		subcommands.DieNotNil(replaceTags(&file, tag), fmt.Sprintf("Malformed CI target custom field %s", name))
 		targets.Targets[name] = file
 	}
-
-	meta, err := json.MarshalCanonical(targets)
-	subcommands.DieNotNil(err, "Failed to serialize new targets")
-	signatures := signTargets(meta, factory, offlineKeys)
-
-	signed := tuf.Signed{
-		// Existing signatures are invalidated by new targets, throw them away.
-		Signatures: signatures,
-		Signed:     &json.RawMessage{},
-	}
-	_ = signed.Signed.UnmarshalJSON(meta)
-
-	wave := client.WaveCreate{
-		Name:    name,
-		Version: version,
-		Tag:     tag,
-		Targets: signed,
-	}
-	if dryRun {
-		payload, err := json.MarshalIndent(&wave, "", "  ")
-		subcommands.DieNotNil(err, "Failed to marshal a wave")
-		fmt.Println(string(payload))
-	} else {
-		subcommands.DieNotNil(api.FactoryCreateWave(factory, &wave), "Failed to create a wave")
-	}
+	return &targets
 }
 
 func signTargets(meta []byte, factory string, offlineKeys keys.OfflineCreds) []tuf.Signature {
