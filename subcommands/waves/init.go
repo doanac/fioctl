@@ -37,6 +37,7 @@ The same expiration will be used for production targets when a wave is complete.
 When set this value overrides an 'expires-days' argument.
 Example: 2020-01-01T00:00:00Z`)
 	initCmd.Flags().BoolP("dry-run", "d", false, "Don't create a wave, print it to standard output.")
+	initCmd.Flags().BoolP("prune", "p", false, "Prune an old unused Target from the production metadata.")
 	initCmd.Flags().StringP("keys", "k", "", "Path to <offline-creds.tgz> used to sign wave targets.")
 	initCmd.Flags().StringP("source-tag", "", "", "Match this tag when looking for target versions. Certain advanced tagging configurations may require this argument.")
 	_ = initCmd.MarkFlagRequired("keys")
@@ -49,6 +50,7 @@ func doInitWave(cmd *cobra.Command, args []string) {
 	subcommands.DieNotNil(err, "Version must be an integer")
 	expires := readExpiration(cmd)
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	prune, _ := cmd.Flags().GetBool("prune")
 	sourceTag, _ := cmd.Flags().GetString("source-tag")
 	offlineKeys := readOfflineKeys(cmd)
 	logrus.Debugf("Creating a wave %s for factory %s targets version %s and new tag %s expires %s",
@@ -56,9 +58,16 @@ func doInitWave(cmd *cobra.Command, args []string) {
 
 	currentTargets, err := api.ProdTargetsGet(factory, tag, false)
 	subcommands.DieNotNil(err)
-	targets := getTargets(factory, currentTargets, version, tag, sourceTag)
+
+	var targets *client.AtsTargetsMeta
+	if prune {
+		targets = pruneTargets(currentTargets, version)
+		targets.Version += 1
+	} else {
+		targets = getTargets(factory, currentTargets, version, tag, sourceTag)
+		targets.Version = int(intVersion)
+	}
 	targets.Expires = expires
-	targets.Version = int(intVersion)
 
 	meta, err := json.MarshalCanonical(targets)
 	subcommands.DieNotNil(err, "Failed to serialize new targets")
@@ -128,6 +137,23 @@ func getTargets(factory string, currentTargets *client.AtsTufTargets, version, t
 		targets.Targets[name] = file
 	}
 	return &targets
+}
+
+func pruneTargets(currentTargets *client.AtsTufTargets, version string) *client.AtsTargetsMeta {
+	targets := &currentTargets.Signed
+	found := false
+	for name, file := range targets.Targets {
+		custom, err := api.TargetCustom(file)
+		subcommands.DieNotNil(err)
+		if custom.Version == version {
+			delete(targets.Targets, name)
+			found = true
+		}
+	}
+	if !found {
+		subcommands.DieNotNil(fmt.Errorf("Could not find targets to prune with version = %s", version))
+	}
+	return targets
 }
 
 func signTargets(meta []byte, factory string, offlineKeys keys.OfflineCreds) []tuf.Signature {
