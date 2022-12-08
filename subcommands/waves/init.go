@@ -37,6 +37,7 @@ The same expiration will be used for production targets when a wave is complete.
 When set this value overrides an 'expires-days' argument.
 Example: 2020-01-01T00:00:00Z`)
 	initCmd.Flags().BoolP("dry-run", "d", false, "Don't create a wave, print it to standard output.")
+	initCmd.Flags().StringArray("prune", []string{}, "Prune old unused Target(s) from the production metadata.")
 	initCmd.Flags().StringP("keys", "k", "", "Path to <offline-creds.tgz> used to sign wave targets.")
 	initCmd.Flags().StringP("source-tag", "", "", "Match this tag when looking for target versions. Certain advanced tagging configurations may require this argument.")
 	_ = initCmd.MarkFlagRequired("keys")
@@ -49,6 +50,7 @@ func doInitWave(cmd *cobra.Command, args []string) {
 	subcommands.DieNotNil(err, "Version must be an integer")
 	expires := readExpiration(cmd)
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	prune, _ := cmd.Flags().GetStringArray("prune")
 	sourceTag, _ := cmd.Flags().GetString("source-tag")
 	offlineKeys := readOfflineKeys(cmd)
 	logrus.Debugf("Creating a wave %s for factory %s targets version %s and new tag %s expires %s",
@@ -100,6 +102,10 @@ func doInitWave(cmd *cobra.Command, args []string) {
 		targets.Targets[name] = file
 	}
 
+	if len(prune) > 0 {
+		targets = pruneTargets(&targets, prune)
+	}
+
 	meta, err := json.MarshalCanonical(targets)
 	subcommands.DieNotNil(err, "Failed to serialize new targets")
 	signatures := signTargets(meta, factory, offlineKeys)
@@ -124,6 +130,32 @@ func doInitWave(cmd *cobra.Command, args []string) {
 	} else {
 		subcommands.DieNotNil(api.FactoryCreateWave(factory, &wave), "Failed to create a wave")
 	}
+}
+
+func pruneTargets(currentTargets *client.AtsTargetsMeta, versions []string) client.AtsTargetsMeta {
+	found := []bool{}
+	keys := []string{}
+	for i, version := range versions {
+		found = append(found, false)
+		for name, file := range currentTargets.Targets {
+			custom, err := api.TargetCustom(file)
+			subcommands.DieNotNil(err)
+			if custom.Version == version {
+				keys = append(keys, name)
+				found[i] = true
+			}
+		}
+	}
+	for i, v := range found {
+		if !v {
+			subcommands.DieNotNil(fmt.Errorf("Could not find targets to prune with version = %s", versions[i]))
+		}
+	}
+	for _, name := range keys {
+		delete(currentTargets.Targets, name)
+	}
+
+	return *currentTargets
 }
 
 func signTargets(meta []byte, factory string, offlineKeys keys.OfflineCreds) []tuf.Signature {
