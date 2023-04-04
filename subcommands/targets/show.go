@@ -115,7 +115,7 @@ func doShow(cmd *cobra.Command, args []string) {
 	for _, targetName := range sortedTargetNames {
 		target := targets[targetName]
 		hash := hashes[targetName]
-		if !shownCiUrl {
+		if !shownCiUrl && target.TargetFormat == "OSTREE" {
 			shownCiUrl = true
 			fmt.Printf("CI:\thttps://app.foundries.io/factories/%s/targets/%s/\n", factory, target.Version)
 		}
@@ -128,6 +128,9 @@ func doShow(cmd *cobra.Command, args []string) {
 			fmt.Printf("\tOrigin Target: %s\n", parts[len(parts)-1])
 		}
 		fmt.Println()
+		if target.TargetFormat == "BINARY" {
+			continue
+		}
 		fmt.Println("\tSource:")
 		if len(target.LmpManifestSha) > 0 {
 			fmt.Printf("\t\thttps://source.foundries.io/factories/%s/lmp-manifest.git/commit/?id=%s\n", factory, target.LmpManifestSha)
@@ -251,10 +254,6 @@ func getTargets(factory string, prodTag string, version string) ([]string, map[s
 		custom, err := api.TargetCustom(target)
 		if err != nil {
 			fmt.Printf("ERROR: %s\n", err)
-			continue
-		}
-		if custom.TargetFormat != "OSTREE" {
-			logrus.Debugf("Skipping non-ostree target: %v", target)
 			continue
 		}
 		matches[name] = *custom

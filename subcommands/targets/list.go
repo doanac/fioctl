@@ -133,10 +133,6 @@ func doList(cmd *cobra.Command, args []string) {
 			fmt.Printf("ERROR: %s\n", err)
 			continue
 		}
-		if custom.TargetFormat != "OSTREE" {
-			logrus.Debugf("Skipping non-ostree target: %v", target)
-			continue
-		}
 		if len(listByTag) > 0 {
 			found := false
 			for _, t := range custom.Tags {
