@@ -129,7 +129,7 @@ func initConfig() {
 	viper.SetEnvPrefix("FIOCTL")
 	viper.AutomaticEnv()
 	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok || errors.Is(err, fs.ErrNotExist) {
 			logrus.Debug("Config file not found")
 		} else {
 			// Config file was found but another error was produced
