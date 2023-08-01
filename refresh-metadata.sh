@@ -1,8 +1,8 @@
 #!/bin/sh -e
 
 tuf_bin=/tmp/tuf
-curl -o ${tuf_bin} -L https://github.com/doanac/go-tuf/releases/download/andy-preview/tuf-linux-amd64
-if [ "$(md5sum ${tuf_bin})"  != "df4cba3191332f9aa3f61f9b18c0fbe2  ${tuf_bin}" ] ; then
+curl -L https://github.com/theupdateframework/go-tuf/releases/download/v0.6.0/tuf_0.6.0_linux_amd64.tar.gz | tar -C /tmp -xz tuf > ${tuf_bin}
+if [ "$(md5sum ${tuf_bin})"  != "27fed62ea9c176b7866828be3e0fd42b  ${tuf_bin}" ] ; then
 	echo "Invalid tuf binary"
 	exit 1
 fi
@@ -11,14 +11,14 @@ chmod +x ${tuf_bin}
 git config user.name github-actions
 git config user.email github-actions@github.com
 
-if ! ${tuf_bin} status --expires "`date -d '+5 hour'`" snapshot ; then
-	echo "refresing snapshot and timestamp metadata"
-	${tuf_bin} snapshot
+if ! ${tuf_bin} status --valid-at "`date --rfc-3339=seconds -d '+8 hour' | sed 's/ /T/'`" snapshot ; then
+	echo "refreshing snapshot and timestamp metadata"
+	${tuf_bin} snapshot --expires=7
 	${tuf_bin} timestamp
 	${tuf_bin} commit
 else
-	if ! ${tuf_bin} status --expires "`date -d '+5 hour'`" timestamp; then
-		echo "refresing timestamp metadata"
+	if ! ${tuf_bin} status --valid-at "`date --rfc-3339=seconds -d '+8 hour' | sed 's/ /T/'`" timestamp ; then
+		echo "refreshing timestamp metadata"
 		${tuf_bin} timestamp
 		${tuf_bin} commit
 	fi
