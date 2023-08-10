@@ -17,7 +17,7 @@ TUF_TARGETS_PASSPHRASE="TODO" \
 ## Adding a new root key:
 ```
 $ git clone https://github.com/foundriesio/fioctl
-$ git checkout -b tuf-metadata
+$ git checkout tuf-metadata
 $ tuf gen-key --expires 365 root
 ```
 
