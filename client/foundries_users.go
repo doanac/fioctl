@@ -57,3 +57,29 @@ func (a *Api) UserAccessDetails(factory string, user_id string) (*FactoryUserAcc
 	}
 	return &user, nil
 }
+
+type CurrentUser struct {
+	PolisId       string              `json:"id"`
+	Teams         []string            `json:"teams"`
+	Scopes        []string            `json:"scopes"`
+	AllowedScopes map[string][]string `json:"allowed_scopes"`
+}
+
+func (a *Api) WhoAmI() (*CurrentUser, error) {
+	url := a.serverUrl + "/authenticate/whoami"
+	body, err := a.Get(url)
+	if err != nil {
+		return nil, err
+	}
+
+	type envelope struct {
+		Data CurrentUser `json:"data"`
+	}
+
+	var user envelope
+	err = json.Unmarshal(*body, &user)
+	if err != nil {
+		return nil, err
+	}
+	return &user.Data, nil
+}

@@ -11,6 +11,8 @@ import (
 	"github.com/spf13/viper"
 )
 
+var whoami bool
+
 func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "users [<user_id>]",
@@ -19,11 +21,14 @@ func NewCommand() *cobra.Command {
 		Run:   doUserCommand,
 	}
 	subcommands.RequireFactory(cmd)
+	cmd.Flags().BoolVar(&whoami, "whoami", false, "Look up the user information found for your local Fioctl credentials")
 	return cmd
 }
 
 func doUserCommand(cmd *cobra.Command, args []string) {
-	if len(args) == 0 {
+	if whoami {
+		doWhoAmI(subcommands.Login(cmd))
+	} else if len(args) == 0 {
 		doList(subcommands.Login(cmd), viper.GetString("factory"))
 	} else {
 		doGetUser(subcommands.Login(cmd), viper.GetString("factory"), args[0])
@@ -74,4 +79,66 @@ func doGetUser(api *client.Api, factory, user_id string) {
 		t.AddLine(scope[strings.Index(scope, ":")+1:])
 	}
 	t.Print()
+}
+
+func doWhoAmI(api *client.Api) {
+	user, err := api.WhoAmI()
+	subcommands.DieNotNil(err)
+
+	t := tabby.New()
+	t.AddHeader("ID")
+	t.AddLine(user.PolisId)
+
+	t.AddLine()
+	t.AddHeader("User belongs to factories:")
+	for _, team := range user.Teams {
+		t.AddLine(team)
+	}
+
+	t.AddLine()
+	t.AddHeader("Scopes you've configured for this token:")
+	for _, scope := range user.Scopes {
+		t.AddLine(scope)
+	}
+
+	allowed := make(map[string]bool)
+
+	t.AddLine()
+	t.AddHeader("Allowed scopes set by your Factory admin")
+	for _, scopes := range user.AllowedScopes {
+		for _, scope := range scopes {
+			allowed[scope] = true
+			// they also have "read" support
+			if strings.HasSuffix(scope, "-update") {
+				allowed[scope[0:len(scope)-7]] = true
+			}
+			t.AddLine(scope)
+		}
+	}
+
+	t.AddLine()
+	t.AddHeader("Effective access (the intersection of allowed scopes and your scopes)")
+	for _, scope := range user.Scopes {
+		// check for:
+		// * exact scope match
+		// * allowed scope is read-update, scope is read. Effective is read
+		// * allowed scope is read, scope is read-update. Effective is read
+		if _, ok := allowed[scope]; ok {
+			t.AddLine(scope)
+		} else {
+			if strings.HasSuffix(scope, "read-update") {
+				roscope := scope[0 : len(scope)-7]
+				if _, ok := allowed[roscope]; ok {
+					// we hve read-update scope but are given read-only access
+					t.AddLine(roscope)
+				}
+			} else if strings.HasSuffix(scope, "read") {
+				rwscope := scope + "-update"
+				if _, ok := allowed[rwscope]; ok {
+					// we hve read-only scope but are given read-write access
+					t.AddLine(scope)
+				}
+			}
+		}
+	}
 }
